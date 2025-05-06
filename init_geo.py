@@ -51,6 +51,8 @@ def main(
     focal_avg=False,
     infer_video=False,
 ):
+    torch.serialization.add_safe_globals([argparse.Namespace])
+
     # ---------------- (1) Load model and images ----------------
     save_path, sparse_0_path, sparse_1_path = init_filestructure(
         Path(source_path), n_views
@@ -70,11 +72,11 @@ def main(
     images, org_imgs_shape = load_images(image_files, size=image_size)
 
     start_time = time()
-    print(f">> Making pairs...")
+    print(">> Making pairs...")
     pairs = make_pairs(images, scene_graph="complete", prefilter=None, symmetrize=True)
-    print(f">> Inference...")
+    print(">> Inference...")
     output = inference(pairs, model, device, batch_size=1, verbose=True)
-    print(f">> Global alignment...")
+    print(">> Global alignment...")
     scene = global_aligner(
         output, device=args.device, mode=GlobalAlignerMode.PointCloudOptimizer
     )
@@ -94,7 +96,7 @@ def main(
     confs = np.array(values)
 
     if conf_aware_ranking:
-        print(f">> Confiden-aware Ranking...")
+        print(">> Confiden-aware Ranking...")
         avg_conf_scores = confs.mean(axis=(1, 2))
         sorted_conf_indices = np.argsort(avg_conf_scores)[::-1]
         sorted_conf_avg_conf_scores = avg_conf_scores[sorted_conf_indices]
@@ -105,7 +107,7 @@ def main(
         print("Sorted indices:", sorted_conf_indices)
 
     # Calculate the co-visibility mask
-    print(f">> Calculate the co-visibility mask...")
+    print(">> Calculate the co-visibility mask...")
     if depth_thre > 0:
         overlapping_masks = compute_co_vis_masks(
             sorted_conf_indices,
@@ -166,7 +168,7 @@ def main(
 
     # Save results
     focals = np.repeat(focals[0], n_views)
-    print(f">> Saving results...")
+    print(">> Saving results...")
     end_time = time()
     save_time(model_path, "[1] init_geo", end_time - start_time)
     save_extrinsic(sparse_0_path, extrinsics_w2c, image_files, image_suffix)
