@@ -1,15 +1,17 @@
 #!/bin/bash
 
 # Change the absolute path first!
-DATA_ROOT_DIR="<Absolute_Path>/InstantSplat/assets"
+DATA_ROOT_DIR="/home/qtn/Documents/GitHub/InstantSplat/datasets/InstantSplat"
 OUTPUT_DIR="output_infer"
 DATASETS=(
-    sora
+    # sora
+    MVimgNet
 )
 
 SCENES=(
-    Santorini
-    Art 
+    # Santorini
+    # Art
+    bench-smaller
 )
 
 N_VIEWS=(

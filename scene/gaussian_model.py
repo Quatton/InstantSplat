@@ -20,31 +20,52 @@ from utils.sh_utils import RGB2SH
 from simple_knn._C import distCUDA2
 from utils.graphics_utils import BasicPointCloud
 from utils.general_utils import strip_symmetric, build_scaling_rotation
-from scipy.spatial.transform import Rotation as R
-from utils.pose_utils import rotation2quad, get_tensor_from_camera
-from utils.graphics_utils import getWorld2View2
+from utils.pose_utils import get_tensor_from_camera
 from scene.per_point_adam import PerPointAdam
 
 
 class GaussianModel:
     def setup_functions(self):
-        def build_covariance_from_scaling_rotation(scaling, scaling_modifier, rotation):
+        def build_covariance_from_scaling_rotation_3d(
+            scaling, scaling_modifier, rotation
+        ):
             L = build_scaling_rotation(scaling_modifier * scaling, rotation)
             actual_covariance = L @ L.transpose(1, 2)
             symm = strip_symmetric(actual_covariance)
             return symm
 
+        def build_covariance_from_scaling_rotation_2d(
+            center, scaling, scaling_modifier, rotation
+        ):
+            RS = build_scaling_rotation(
+                torch.cat(
+                    [scaling * scaling_modifier, torch.ones_like(scaling)], dim=-1
+                ),
+                rotation,
+            ).permute(0, 2, 1)
+            trans = torch.zeros(
+                (center.shape[0], 4, 4), dtype=torch.float, device="cuda"
+            )
+            trans[:, :3, :3] = RS
+            trans[:, 3, :3] = center
+            trans[:, 3, 3] = 1
+            return trans
+
         self.scaling_activation = torch.exp
         self.scaling_inverse_activation = torch.log
 
-        self.covariance_activation = build_covariance_from_scaling_rotation
+        self.covariance_activation = (
+            build_covariance_from_scaling_rotation_2d
+            if self.surf
+            else build_covariance_from_scaling_rotation_3d
+        )
 
         self.opacity_activation = torch.sigmoid
         self.inverse_opacity_activation = inverse_sigmoid
 
         self.rotation_activation = torch.nn.functional.normalize
 
-    def __init__(self, sh_degree: int, surf=false):
+    def __init__(self, sh_degree: int, surf=False):
         self.active_sh_degree = 0
         self.max_sh_degree = sh_degree
         self._xyz = torch.empty(0)
@@ -59,6 +80,7 @@ class GaussianModel:
         self.optimizer = None
         self.percent_dense = 0
         self.spatial_lr_scale = 0
+        self.surf = surf
         self.setup_functions()
 
     def capture(self):
@@ -122,8 +144,14 @@ class GaussianModel:
         return self.opacity_activation(self._opacity)
 
     def get_covariance(self, scaling_modifier=1):
-        return self.covariance_activation(
-            self.get_scaling, scaling_modifier, self._rotation
+        return (
+            self.covariance_activation(
+                self.get_scaling, scaling_modifier, self._rotation
+            )
+            if not self.surf
+            else self.covariance_activation(
+                self.get_scaling, scaling_modifier, self._rotation
+            )
         )
 
     def init_RT_seq(self, cam_list):
@@ -174,11 +202,15 @@ class GaussianModel:
         if scale_gaussian is not None:
             mean3_sq_dist = torch.from_numpy(scale_gaussian**2).float().cuda()
             dist2 = torch.min(mean3_sq_dist, dist2)
-        scales = torch.log(torch.sqrt(dist2))[..., None].repeat(1, 3)
-        rots = torch.zeros((fused_point_cloud.shape[0], 4), device="cuda")
-        rots[:, 0] = 1
+        scales = torch.log(torch.sqrt(dist2))[..., None].repeat(
+            1, 2 if self.surf else 3
+        )
 
-        opacities = inverse_sigmoid(
+        rots = torch.zeros((fused_point_cloud.shape[0], 4), device="cuda")
+        if not self.surf:
+            rots[:, 0] = 1
+
+        opacities = self.inverse_opacity_activation(
             0.1
             * torch.ones(
                 (fused_point_cloud.shape[0], 1), dtype=torch.float, device="cuda"
@@ -225,7 +257,7 @@ class GaussianModel:
             },
             {
                 "params": [self._scaling],
-                "lr": training_args.scaling_lr * 10,
+                "lr": training_args.scaling_lr * (10 if not self.surf else 5),
                 "name": "scaling",
             },
             {
@@ -235,10 +267,11 @@ class GaussianModel:
             },
         ]
 
-        l_cam = [
-            {"params": [self.P], "lr": training_args.rotation_lr * 0.1, "name": "pose"},
-        ]
-        l += l_cam
+        if not self.surf:
+            l_cam = [
+                {"params": [self.P], "lr": training_args.rotation_lr * 0.1, "name": "pose"},
+            ]
+            l += l_cam
 
         self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
         self.xyz_scheduler_args = get_expon_lr_func(
@@ -285,7 +318,7 @@ class GaussianModel:
             },
             {
                 "params": [self._scaling],
-                "lr": training_args.scaling_lr * 10,
+                "lr": training_args.scaling_lr * (10 if not self.surf else 5),
                 "name": "scaling",
             },
             {
@@ -309,6 +342,7 @@ class GaussianModel:
             lr_final=training_args.position_lr_final * self.spatial_lr_scale,
             lr_delay_mult=training_args.position_lr_delay_mult,
             max_steps=training_args.position_lr_max_steps,
+            lr_delay_steps=100 if self.surf else 0
         )
 
         self.cam_scheduler_args = get_expon_lr_func(
@@ -382,7 +416,7 @@ class GaussianModel:
         PlyData([el]).write(path)
 
     def reset_opacity(self):
-        opacities_new = inverse_sigmoid(
+        opacities_new = self.inverse_opacity_activation(
             torch.min(self.get_opacity, torch.ones_like(self.get_opacity) * 0.01)
         )
         optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
@@ -599,7 +633,9 @@ class GaussianModel:
         )
 
         stds = self.get_scaling[selected_pts_mask].repeat(N, 1)
-        means = torch.zeros((stds.size(0), 3), device="cuda")
+        if self.surf:
+            stds = torch.cat([stds, 0 * torch.ones_like(stds[:,:1])], dim = -1)
+        means = torch.zeros_like(stds, device="cuda")
         samples = torch.normal(mean=means, std=stds)
         rots = build_rotation(self._rotation[selected_pts_mask]).repeat(N, 1, 1)
         new_xyz = torch.bmm(rots, samples.unsqueeze(-1)).squeeze(-1) + self.get_xyz[
@@ -661,8 +697,9 @@ class GaussianModel:
         grads = self.xyz_gradient_accum / self.denom
         grads[grads.isnan()] = 0.0
 
-        # self.densify_and_clone(grads, max_grad, extent)
-        # self.densify_and_split(grads, max_grad, extent)
+        if self.surf:
+            self.densify_and_clone(grads, max_grad, extent)
+            self.densify_and_split(grads, max_grad, extent)
 
         prune_mask = (self.get_opacity < min_opacity).squeeze()
         if max_screen_size:
@@ -677,6 +714,9 @@ class GaussianModel:
 
     def add_densification_stats(self, viewspace_point_tensor, update_filter):
         self.xyz_gradient_accum[update_filter] += torch.norm(
-            viewspace_point_tensor.grad[update_filter, :2], dim=-1, keepdim=True
+            viewspace_point_tensor.grad[update_filter, :2]
+            if not self.surf
+            else viewspace_point_tensor.grad[update_filter]
+            , dim=-1, keepdim=True
         )
         self.denom[update_filter] += 1

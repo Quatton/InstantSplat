@@ -18,8 +18,6 @@ from scene.colmap_loader import (
     read_extrinsics_text,
     read_intrinsics_text,
     qvec2rotmat,
-    read_extrinsics_binary,
-    read_intrinsics_binary,
     read_points3D_binary,
     read_points3D_text,
 )
@@ -31,7 +29,7 @@ from pathlib import Path
 from plyfile import PlyData, PlyElement
 from utils.sh_utils import SH2RGB
 from scene.gaussian_model import BasicPointCloud
-
+import cv2
 
 class CameraInfo(NamedTuple):
     uid: int
@@ -389,18 +387,11 @@ def readColmapSceneInfo(path, images, eval, args, llffhold=8):
     cam_extrinsics = read_extrinsics_text(cameras_extrinsic_file)
     cam_intrinsics = read_intrinsics_text(cameras_intrinsic_file)
     reading_dir = "images" if images == None else images
+    cam_infos_unsorted, poses = readColmapCameras(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, images_folder=os.path.join(path, reading_dir))    
+    cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : x.image_name)   
+    sorting_indices = sorted(range(len(cam_infos_unsorted)), key=lambda x: cam_infos_unsorted[x].image_name)
 
-    cam_infos_unsorted, poses = readColmapCameras(
-        cam_extrinsics=cam_extrinsics,
-        cam_intrinsics=cam_intrinsics,
-        images_folder=os.path.join(path, reading_dir),
-    )
-    sorting_indices = sorted(
-        range(len(cam_infos_unsorted)), key=lambda x: cam_infos_unsorted[x].image_name
-    )
-    cam_infos = [cam_infos_unsorted[i] for i in sorting_indices]
     sorted_poses = [poses[i] for i in sorting_indices]
-    cam_infos = sorted(cam_infos_unsorted.copy(), key=lambda x: x.image_name)
 
     if eval:
         train_cam_infos = cam_infos
