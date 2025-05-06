@@ -13,7 +13,9 @@ from .waymo import Waymo  # noqa
 from .wildrgbd import WildRGBD  # noqa
 
 
-def get_data_loader(dataset, batch_size, num_workers=8, shuffle=True, drop_last=True, pin_mem=True):
+def get_data_loader(
+    dataset, batch_size, num_workers=8, shuffle=True, drop_last=True, pin_mem=True
+):
     import torch
     from croco.utils.misc import get_world_size, get_rank
 
@@ -25,13 +27,22 @@ def get_data_loader(dataset, batch_size, num_workers=8, shuffle=True, drop_last=
     rank = get_rank()
 
     try:
-        sampler = dataset.make_sampler(batch_size, shuffle=shuffle, world_size=world_size,
-                                       rank=rank, drop_last=drop_last)
+        sampler = dataset.make_sampler(
+            batch_size,
+            shuffle=shuffle,
+            world_size=world_size,
+            rank=rank,
+            drop_last=drop_last,
+        )
     except (AttributeError, NotImplementedError):
         # not avail for this dataset
         if torch.distributed.is_initialized():
             sampler = torch.utils.data.DistributedSampler(
-                dataset, num_replicas=world_size, rank=rank, shuffle=shuffle, drop_last=drop_last
+                dataset,
+                num_replicas=world_size,
+                rank=rank,
+                shuffle=shuffle,
+                drop_last=drop_last,
             )
         elif shuffle:
             sampler = torch.utils.data.RandomSampler(dataset)

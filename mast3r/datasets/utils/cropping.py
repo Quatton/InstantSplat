@@ -11,7 +11,7 @@ from dust3r.utils.geometry import inv, geotrf
 
 
 def reciprocal_1d(corres_1_to_2, corres_2_to_1, ret_recip=False):
-    is_reciprocal1 = (corres_2_to_1[corres_1_to_2] == np.arange(len(corres_1_to_2)))
+    is_reciprocal1 = corres_2_to_1[corres_1_to_2] == np.arange(len(corres_1_to_2))
     pos1 = is_reciprocal1.nonzero()[0]
     pos2 = corres_1_to_2[pos1]
     if ret_recip:
@@ -19,16 +19,20 @@ def reciprocal_1d(corres_1_to_2, corres_2_to_1, ret_recip=False):
     return pos1, pos2
 
 
-def extract_correspondences_from_pts3d(view1, view2, target_n_corres, rng=np.random, ret_xy=True, nneg=0):
+def extract_correspondences_from_pts3d(
+    view1, view2, target_n_corres, rng=np.random, ret_xy=True, nneg=0
+):
     view1, view2 = to_numpy((view1, view2))
     # project pixels from image1 --> 3d points --> image2 pixels
-    shape1, corres1_to_2 = reproject_view(view1['pts3d'], view2)
-    shape2, corres2_to_1 = reproject_view(view2['pts3d'], view1)
+    shape1, corres1_to_2 = reproject_view(view1["pts3d"], view2)
+    shape2, corres2_to_1 = reproject_view(view2["pts3d"], view1)
 
     # compute reciprocal correspondences:
     # pos1 == valid pixels (correspondences) in image1
-    is_reciprocal1, pos1, pos2 = reciprocal_1d(corres1_to_2, corres2_to_1, ret_recip=True)
-    is_reciprocal2 = (corres1_to_2[corres2_to_1] == np.arange(len(corres2_to_1)))
+    is_reciprocal1, pos1, pos2 = reciprocal_1d(
+        corres1_to_2, corres2_to_1, ret_recip=True
+    )
+    is_reciprocal2 = corres1_to_2[corres2_to_1] == np.arange(len(corres2_to_1))
 
     if target_n_corres is None:
         if ret_xy:
@@ -62,9 +66,27 @@ def extract_correspondences_from_pts3d(view1, view2, target_n_corres, rng=np.ran
 
     if n_negatives > 0:
         # add false correspondences if not enough
-        def norm(p): return p / p.sum()
-        pos1 = np.r_[pos1, rng.choice(shape1[0] * shape1[1], size=n_negatives, replace=False, p=norm(~is_reciprocal1))]
-        pos2 = np.r_[pos2, rng.choice(shape2[0] * shape2[1], size=n_negatives, replace=False, p=norm(~is_reciprocal2))]
+        def norm(p):
+            return p / p.sum()
+
+        pos1 = np.r_[
+            pos1,
+            rng.choice(
+                shape1[0] * shape1[1],
+                size=n_negatives,
+                replace=False,
+                p=norm(~is_reciprocal1),
+            ),
+        ]
+        pos2 = np.r_[
+            pos2,
+            rng.choice(
+                shape2[0] * shape2[1],
+                size=n_negatives,
+                replace=False,
+                p=norm(~is_reciprocal2),
+            ),
+        ]
         valid = np.r_[valid, np.zeros(n_negatives, dtype=bool)]
 
     # convert (x+W*y) back to 2d (x,y) coordinates
@@ -75,8 +97,10 @@ def extract_correspondences_from_pts3d(view1, view2, target_n_corres, rng=np.ran
 
 
 def reproject_view(pts3d, view2):
-    shape = view2['pts3d'].shape[:2]
-    return reproject(pts3d, view2['camera_intrinsics'], inv(view2['camera_pose']), shape)
+    shape = view2["pts3d"].shape[:2]
+    return reproject(
+        pts3d, view2["camera_intrinsics"], inv(view2["camera_pose"]), shape
+    )
 
 
 def reproject(pts3d, K, world2cam, shape):
@@ -84,7 +108,7 @@ def reproject(pts3d, K, world2cam, shape):
     assert THREE == 3
 
     # reproject in camera2 space
-    with np.errstate(divide='ignore', invalid='ignore'):
+    with np.errstate(divide="ignore", invalid="ignore"):
         pos = geotrf(K @ world2cam[:3], pts3d, norm=1, ncol=2)
 
     # quantize to pixel positions
@@ -93,9 +117,11 @@ def reproject(pts3d, K, world2cam, shape):
 
 def ravel_xy(pos, shape):
     H, W = shape
-    with np.errstate(invalid='ignore'):
+    with np.errstate(invalid="ignore"):
         qx, qy = pos.reshape(-1, 2).round().astype(np.int32).T
-    quantized_pos = qx.clip(min=0, max=W - 1, out=qx) + W * qy.clip(min=0, max=H - 1, out=qy)
+    quantized_pos = qx.clip(min=0, max=W - 1, out=qx) + W * qy.clip(
+        min=0, max=H - 1, out=qy
+    )
     return quantized_pos
 
 
@@ -105,14 +131,15 @@ def unravel_xy(pos, shape):
 
 
 def _rotation_origin_to_pt(target):
-    """ Align the origin (0,0,1) with the target point (x,y,1) in projective space.
+    """Align the origin (0,0,1) with the target point (x,y,1) in projective space.
     Method: rotate z to put target on (x'+,0,1), then rotate on Y to get (0,0,1) and un-rotate z.
     """
     from scipy.spatial.transform import Rotation
+
     x, y = target
     rot_z = np.arctan2(y, x)
     rot_y = np.arctan(np.linalg.norm(target))
-    R = Rotation.from_euler('ZYZ', [rot_z, rot_y, -rot_z]).as_matrix()
+    R = Rotation.from_euler("ZYZ", [rot_z, rot_y, -rot_z]).as_matrix()
     return R
 
 
@@ -124,7 +151,7 @@ def _dotmv(Trf, pts, ncol=None, norm=False):
     output_reshape = pts.shape[:-1]
     if Trf.ndim >= 3:
         n = Trf.ndim - 2
-        assert Trf.shape[:n] == pts.shape[:n], 'batch size does not match'
+        assert Trf.shape[:n] == pts.shape[:n], "batch size does not match"
         Trf = Trf.reshape(-1, Trf.shape[-2], Trf.shape[-1])
 
         if pts.ndim > Trf.ndim:
@@ -156,9 +183,9 @@ def _dotmv(Trf, pts, ncol=None, norm=False):
 
 
 def crop_to_homography(K, crop, target_size=None):
-    """ Given an image and its intrinsics, 
-        we want to replicate a rectangular crop with an homography, 
-        so that the principal point of the new 'crop' is centered.
+    """Given an image and its intrinsics,
+    we want to replicate a rectangular crop with an homography,
+    so that the principal point of the new 'crop' is centered.
     """
     # build intrinsics for the crop
     crop = np.round(crop)
@@ -191,8 +218,8 @@ def crop_to_homography(K, crop, target_size=None):
 
 
 def gen_random_crops(imsize, n_crops, resolution, aug_crop, rng=np.random):
-    """ Generate random crops of size=resolution, 
-        for an input image upscaled to (imsize + randint(0 , aug_crop))
+    """Generate random crops of size=resolution,
+    for an input image upscaled to (imsize + randint(0 , aug_crop))
     """
     resolution_crop = np.array(resolution) * min(np.array(imsize) / resolution)
 
@@ -214,6 +241,6 @@ def in2d_rect(corres, crops):
     # corres = (N,2)
     # crops = (M,4)
     # output = (N, M)
-    is_sup = (corres[:, None] >= crops[None, :, 0:2])
-    is_inf = (corres[:, None] < crops[None, :, 2:4])
+    is_sup = corres[:, None] >= crops[None, :, 0:2]
+    is_inf = corres[:, None] < crops[None, :, 2:4]
     return (is_sup & is_inf).all(axis=-1)

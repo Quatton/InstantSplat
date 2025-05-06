@@ -31,7 +31,7 @@ def pts_dist_max(pts):
     return max_dist
 
 
-def align_ate_c2b_use_a2b(traj_a, traj_b, traj_c=None, method='sim3'):
+def align_ate_c2b_use_a2b(traj_a, traj_b, traj_c=None, method="sim3"):
     """Align c to b using the sim3 from a to b.
     :param traj_a:  (N0, 3/4, 4) torch tensor
     :param traj_b:  (N0, 3/4, 4) torch tensor
@@ -77,16 +77,15 @@ def align_ate_c2b_use_a2b(traj_a, traj_b, traj_c=None, method='sim3'):
     return traj_c_aligned  # (N1, 4, 4)
 
 
-
 def align_scale_c2b_use_a2b(traj_a, traj_b, traj_c=None):
-    '''Scale c to b using the scale from a to b.
+    """Scale c to b using the scale from a to b.
     :param traj_a:      (N0, 3/4, 4) torch tensor
     :param traj_b:      (N0, 3/4, 4) torch tensor
     :param traj_c:      None or (N1, 3/4, 4) torch tensor
     :return:
         scaled_traj_c   (N1, 4, 4)   torch tensor
         scale           scalar
-    '''
+    """
     if traj_c is None:
         traj_c = traj_a.clone()
 

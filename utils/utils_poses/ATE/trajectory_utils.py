@@ -37,9 +37,9 @@ def compute_comparison_indices_length(distances, dist, max_dist_diff):
         best_idx = -1
         error = max_dist_diff
         for i in range(idx, max_idx):
-            if np.abs(distances[i]-(d+dist)) < error:
+            if np.abs(distances[i] - (d + dist)) < error:
                 best_idx = i
-                error = np.abs(distances[i] - (d+dist))
+                error = np.abs(distances[i] - (d + dist))
         if best_idx != -1:
             comparisons.append(best_idx)
     return comparisons
@@ -50,5 +50,8 @@ def compute_angle(transform):
     Compute the rotation angle from a 4x4 homogeneous matrix.
     """
     # an invitation to 3-d vision, p 27
-    return np.arccos(
-        min(1, max(-1, (np.trace(transform[0:3, 0:3]) - 1)/2)))*180.0/np.pi
+    return (
+        np.arccos(min(1, max(-1, (np.trace(transform[0:3, 0:3]) - 1) / 2)))
+        * 180.0
+        / np.pi
+    )

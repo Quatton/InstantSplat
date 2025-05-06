@@ -45,7 +45,7 @@ class ScanNetpp(DUSt3R_ScanNetpp, MASt3RBaseStereoViewDataset):
 
 
 class StaticThings3D(DUSt3R_StaticThings3D, MASt3RBaseStereoViewDataset):
-    def __init__(self, ROOT, *args, mask_bg='rand', **kwargs):
+    def __init__(self, ROOT, *args, mask_bg="rand", **kwargs):
         super().__init__(ROOT, *args, mask_bg=mask_bg, **kwargs)
         self.is_metric_scale = False
 

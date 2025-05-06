@@ -49,7 +49,7 @@ def align_ate_c2b_use_a2b(traj_a, traj_b, traj_c=None):
     # This function works in quaternion.
     # scalar, (3, 3), (3, ) gt = R * s * est + t.
     # s, R, t = alignTrajectory(t_a, t_b, quat_a, quat_b, method='sim3')
-    s, R, t = alignTrajectory(t_a, t_b, quat_a, quat_b, method='se3')
+    s, R, t = alignTrajectory(t_a, t_b, quat_a, quat_b, method="se3")
 
     # reshape tensors
     R = R[None, :, :].astype(np.float32)  # (1, 3, 3)
@@ -70,16 +70,15 @@ def align_ate_c2b_use_a2b(traj_a, traj_b, traj_c=None):
     return traj_c_aligned  # (N1, 4, 4)
 
 
-
 def align_scale_c2b_use_a2b(traj_a, traj_b, traj_c=None):
-    '''Scale c to b using the scale from a to b.
+    """Scale c to b using the scale from a to b.
     :param traj_a:      (N0, 3/4, 4) torch tensor
     :param traj_b:      (N0, 3/4, 4) torch tensor
     :param traj_c:      None or (N1, 3/4, 4) torch tensor
     :return:
         scaled_traj_c   (N1, 4, 4)   torch tensor
         scale           scalar
-    '''
+    """
     if traj_c is None:
         traj_c = traj_a.clone()
 

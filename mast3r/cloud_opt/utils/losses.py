@@ -21,10 +21,11 @@ def gamma_loss(gamma, mul=1, offset=None, clip=np.inf):
         if gamma == 1:
             return l1_loss
         # d(x**p)/dx = 1 ==> p * x**(p-1) == 1 ==> x = (1/p)**(1/(p-1))
-        offset = (1 / gamma)**(1 / (gamma - 1))
+        offset = (1 / gamma) ** (1 / (gamma - 1))
 
     def loss_func(x, y):
-        return (mul * l1_loss(x, y).clip(max=clip) + offset) ** gamma - offset ** gamma
+        return (mul * l1_loss(x, y).clip(max=clip) + offset) ** gamma - offset**gamma
+
     return loss_func
 
 
