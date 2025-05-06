@@ -16,21 +16,19 @@ from time import time
 
 import numpy as np
 import torch
-import torchvision
 from tqdm import tqdm
 from argparse import ArgumentParser, Namespace
 
 from arguments import ModelParams, PipelineParams, OptimizationParams
 from gaussian_renderer import render, network_gui
 from scene import Scene, GaussianModel
-from scene.cameras import Camera
-from utils.camera_utils import generate_interpolated_path
 from utils.general_utils import safe_state
-from utils.graphics_utils import getWorld2View2_torch
 from utils.image_utils import psnr
 from utils.loss_utils import l1_loss, ssim
 from utils.pose_utils import get_camera_from_tensor
 from utils.sfm_utils import save_time
+
+import uuid
 
 try:
     from torch.utils.tensorboard import SummaryWriter
@@ -97,10 +95,11 @@ def training(
     checkpoint_iterations,
     checkpoint,
     debug_from,
+    surf
 ):
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
-    gaussians = GaussianModel(dataset.sh_degree)
+    gaussians = GaussianModel(dataset.sh_degree, surf)
 
     # per-point-optimizer
     confidence_path = os.path.join(
@@ -136,6 +135,8 @@ def training(
     viewpoint_stack = scene.getTrainCameras().copy()
     viewpoint_indices = list(range(len(viewpoint_stack)))
     ema_loss_for_log = 0.0
+    ema_dist_for_log = 0.0
+    ema_normal_for_log = 0.0
 
     progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
     first_iter += 1
@@ -198,8 +199,27 @@ def training(
         else:
             ssim_value = ssim(image, gt_image)
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim_value)
-        loss.backward()
+        
+        if not gaussians.surf:
+            loss.backward()
+        else:
+            # regularization
+            lambda_normal = opt.lambda_normal * 2 if iteration > 700 else 0.0
+            lambda_dist = opt.lambda_dist if iteration > 500 else 0.0
+
+            rend_dist = render_pkg["rend_dist"]
+            rend_normal  = render_pkg['rend_normal']
+            surf_normal = render_pkg['surf_normal']
+            normal_error = (1 - (rend_normal * surf_normal).sum(dim=0))[None]
+            normal_loss = lambda_normal * (normal_error).mean()
+            dist_loss = lambda_dist * (rend_dist).mean()
+
+            # loss
+            total_loss = loss + dist_loss + normal_loss        
+            total_loss.backward()
         iter_end.record()
+
+
         # for param_group in gaussians.optimizer.param_groups:
         #     for param in param_group['params']:
         #         if param is gaussians.P:
@@ -210,11 +230,18 @@ def training(
         with torch.no_grad():
             # Progress bar
             ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log
+            ema_dist_for_log = 0.4 * dist_loss.item() + 0.6 * ema_dist_for_log
+            ema_normal_for_log = 0.4 * normal_loss.item() + 0.6 * ema_normal_for_log
+
             if iteration % 10 == 0:
-                progress_bar.set_postfix({"Loss": f"{ema_loss_for_log:.{7}f}"})
+                progress_bar.set_postfix({
+                    "Loss": f"{ema_loss_for_log:.{7}f}",
+                    "distort": f"{ema_dist_for_log:.{5}f}",
+                    "normal": f"{ema_normal_for_log:.{5}f}",
+                    "Points": f"{len(gaussians.get_xyz)}",
+                })
                 progress_bar.update(10)
-            if iteration == opt.iterations:
-                progress_bar.close()
+          
 
             # Densification
             # if iteration < opt.densify_until_iter:
@@ -236,11 +263,16 @@ def training(
 
             # Log and save
             if iteration == opt.iterations:
+                progress_bar.close()
                 end = time()
                 train_time_wo_log = end - start
                 save_time(
                     scene.model_path, "[2] train_joint_TrainTime", train_time_wo_log
                 )
+                # Log and save
+                if tb_writer is not None:
+                    tb_writer.add_scalar('train_loss_patches/dist_loss', ema_dist_for_log, iteration)
+                    tb_writer.add_scalar('train_loss_patches/normal_loss', ema_normal_for_log, iteration)
                 training_report(
                     tb_writer,
                     iteration,
@@ -297,7 +329,7 @@ def prepare_output_and_logger(args):
         print("Tensorboard not available: not logging progress")
     return tb_writer
 
-
+@torch.no_grad()
 def training_report(
     tb_writer,
     iteration,
@@ -311,12 +343,13 @@ def training_report(
     renderArgs,
 ):
     if tb_writer:
-        tb_writer.add_scalar("train_loss_patches/l1_loss", Ll1.item(), iteration)
+        tb_writer.add_scalar("train_loss_patches/reg_loss", Ll1.item(), iteration)
         tb_writer.add_scalar("train_loss_patches/total_loss", loss.item(), iteration)
         tb_writer.add_scalar("iter_time", elapsed, iteration)
+        tb_writer.add_scalar('total_points', scene.gaussians.get_xyz.shape[0], iteration)
 
     # Report test and samples of training set
-    if iteration in testing_iterations or iteration % 5000 == 0:
+    if iteration in testing_iterations or iteration % 1000 == 0:
         torch.cuda.empty_cache()
         validation_configs = (
             {"name": "test", "cameras": scene.getTestCameras()},
@@ -338,6 +371,7 @@ def training_report(
                         pose = scene.gaussians.get_RT(viewpoint.uid)
                     else:
                         pose = scene.gaussians.get_RT_test(viewpoint.uid)
+                    render_pkg = renderFunc(viewpoint, scene.gaussians, *renderArgs, camera_pose=pose)
                     image = torch.clamp(
                         renderFunc(
                             viewpoint, scene.gaussians, *renderArgs, camera_pose=pose
@@ -349,12 +383,33 @@ def training_report(
                         viewpoint.original_image.to("cuda"), 0.0, 1.0
                     )
                     if tb_writer and (idx < 5):
+                        from utils.general_utils import colormap
+                        depth = render_pkg["surf_depth"]
+                        norm = depth.max()
+                        depth = depth / norm
+                        depth = colormap(depth.cpu().numpy()[0], cmap='turbo')
+                        tb_writer.add_images(config['name'] + "_view_{}/depth".format(viewpoint.image_name), depth[None], global_step=iteration)
                         tb_writer.add_images(
                             config["name"]
                             + "_view_{}/render".format(viewpoint.image_name),
                             image[None],
                             global_step=iteration,
                         )
+
+                        try:
+                            rend_alpha = render_pkg['rend_alpha']
+                            rend_normal = render_pkg["rend_normal"] * 0.5 + 0.5
+                            surf_normal = render_pkg["surf_normal"] * 0.5 + 0.5
+                            tb_writer.add_images(config['name'] + "_view_{}/rend_normal".format(viewpoint.image_name), rend_normal[None], global_step=iteration)
+                            tb_writer.add_images(config['name'] + "_view_{}/surf_normal".format(viewpoint.image_name), surf_normal[None], global_step=iteration)
+                            tb_writer.add_images(config['name'] + "_view_{}/rend_alpha".format(viewpoint.image_name), rend_alpha[None], global_step=iteration)
+
+                            rend_dist = render_pkg["rend_dist"]
+                            rend_dist = colormap(rend_dist.cpu().numpy()[0])
+                            tb_writer.add_images(config['name'] + "_view_{}/rend_dist".format(viewpoint.image_name), rend_dist[None], global_step=iteration)
+                        except:
+                            pass
+
                         if iteration == testing_iterations[0]:
                             tb_writer.add_images(
                                 config["name"]
@@ -405,6 +460,7 @@ if __name__ == "__main__":
     parser.add_argument("--disable_viewer", action="store_true", default=True)
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
     parser.add_argument("--start_checkpoint", type=str, default=None)
+    parser.add_argument("--surf", action="store_true", default=False)
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
 
@@ -428,6 +484,7 @@ if __name__ == "__main__":
         args.checkpoint_iterations,
         args.start_checkpoint,
         args.debug_from,
+        args.surf
     )
 
     # All done

@@ -14,6 +14,7 @@ import traceback
 import socket
 import json
 from scene.cameras import MiniCam
+import struct
 
 host = "127.0.0.1"
 port = 6009
@@ -23,6 +24,15 @@ addr = None
 
 listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
+def send_json_data(conn, data):
+    # Serialize the list of strings to JSON
+    serialized_data = json.dumps(data)
+    # Convert the serialized data to bytes
+    bytes_data = serialized_data.encode('utf-8')
+    # Send the length of the serialized data first
+    conn.sendall(struct.pack('I', len(bytes_data)))
+    # Send the actual serialized data
+    conn.sendall(bytes_data)
 
 def init(wish_host, wish_port):
     global host, port, listener
@@ -33,13 +43,14 @@ def init(wish_host, wish_port):
     listener.settimeout(0)
 
 
-def try_connect():
+def try_connect(render_items):
     global conn, addr, listener
     try:
         conn, addr = listener.accept()
         print(f"\nConnected by {addr}")
         conn.settimeout(None)
-    except Exception as inst:
+        send_json_data(conn, render_items)
+    except Exception:
         pass
 
 
@@ -51,12 +62,13 @@ def read():
     return json.loads(message.decode("utf-8"))
 
 
-def send(message_bytes, verify):
+def send(message_bytes, verify, metrics):
     global conn
     if message_bytes != None:
         conn.sendall(message_bytes)
     conn.sendall(len(verify).to_bytes(4, "little"))
     conn.sendall(bytes(verify, "ascii"))
+    send_json_data(conn, metrics)
 
 
 def receive():
@@ -95,6 +107,7 @@ def receive():
                 world_view_transform,
                 full_proj_transform,
             )
+            render_mode = message["render_mode"]
         except Exception as e:
             print("")
             traceback.print_exc()
@@ -105,7 +118,7 @@ def receive():
             do_shs_python,
             do_rot_scale_python,
             keep_alive,
-            scaling_modifier,
+            scaling_modifier, render_mode,
         )
     else:
-        return None, None, None, None, None, None
+        return None, None, None, None, None, None, None

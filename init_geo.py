@@ -50,6 +50,7 @@ def main(
     conf_aware_ranking=False,
     focal_avg=False,
     infer_video=False,
+    surf=False
 ):
     torch.serialization.add_safe_globals([argparse.Namespace])
 
@@ -243,6 +244,7 @@ if __name__ == "__main__":
         "--depth_thre", type=float, default=0.01, help="Depth threshold"
     )
     parser.add_argument("--infer_video", action="store_true")
+    parser.add_argument("--surf", action="store_true", default=False)
 
     args = parser.parse_args()
     main(
@@ -263,4 +265,5 @@ if __name__ == "__main__":
         args.conf_aware_ranking,
         args.focal_avg,
         args.infer_video,
+        args.surf
     )
