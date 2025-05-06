@@ -99,7 +99,7 @@ def training(
 ):
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
-    gaussians = GaussianModel(dataset.sh_degree, surf)
+    gaussians = GaussianModel(dataset.sh_degree, surf=surf)
 
     # per-point-optimizer
     confidence_path = os.path.join(
@@ -178,12 +178,16 @@ def training(
         pose = gaussians.get_RT(viewpoint_cam.uid)
 
         # Render
-        if (iteration - 1) == debug_from:
-            pipe.debug = True
+        if not surf:
+            if (iteration - 1) == debug_from:
+                pipe.debug = True
 
-        bg = torch.rand((3), device="cuda") if opt.random_background else background
+            bg = torch.rand((3), device="cuda") if opt.random_background else background
 
-        render_pkg = render(viewpoint_cam, gaussians, pipe, bg, camera_pose=pose)
+            render_pkg = render(viewpoint_cam, gaussians, pipe, bg, camera_pose=pose)
+        else:
+            render_pkg = render(viewpoint_cam, gaussians, pipe, background, camera_pose=pose)
+
         image, viewspace_point_tensor, visibility_filter, radii = (
             render_pkg["render"],
             render_pkg["viewspace_points"],
@@ -230,8 +234,9 @@ def training(
         with torch.no_grad():
             # Progress bar
             ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log
-            ema_dist_for_log = 0.4 * dist_loss.item() + 0.6 * ema_dist_for_log
-            ema_normal_for_log = 0.4 * normal_loss.item() + 0.6 * ema_normal_for_log
+            if surf:
+                ema_dist_for_log = 0.4 * dist_loss.item() + 0.6 * ema_dist_for_log
+                ema_normal_for_log = 0.4 * normal_loss.item() + 0.6 * ema_normal_for_log
 
             if iteration % 10 == 0:
                 progress_bar.set_postfix({
@@ -349,7 +354,7 @@ def training_report(
         tb_writer.add_scalar('total_points', scene.gaussians.get_xyz.shape[0], iteration)
 
     # Report test and samples of training set
-    if iteration in testing_iterations or iteration % 1000 == 0:
+    if iteration in testing_iterations:
         torch.cuda.empty_cache()
         validation_configs = (
             {"name": "test", "cameras": scene.getTestCameras()},

@@ -5,13 +5,15 @@ DATA_ROOT_DIR="/home/qtn/Documents/GitHub/InstantSplat/datasets/InstantSplat"
 OUTPUT_DIR="output_infer"
 DATASETS=(
     # sora
-    MVimgNet
+    # MVimgNet
+    DTU
 )
 
 SCENES=(
     # Santorini
     # Art
-    bench-smaller
+    # bench-smaller
+    scan105
 )
 
 N_VIEWS=(
