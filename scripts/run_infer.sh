@@ -6,21 +6,23 @@ OUTPUT_DIR="output_infer"
 DATASETS=(
     # sora
     # MVimgNet
-    DTU
+    # DTU
+    .
 )
 
 SCENES=(
     # Santorini
     # Art
     # bench-smaller
-    scan105
+    # scan105
+    mac
 )
 
 N_VIEWS=(
     3
 )
 
-gs_train_iter=1000
+gs_train_iter=10000
 
 # Function to get the id of an available GPU
 get_available_gpu() {

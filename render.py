@@ -365,7 +365,7 @@ if __name__ == "__main__":
     # Set up command line argument parser
     parser = ArgumentParser(description="Testing script parameters")
 
-    model = ModelParams(parser, sentinel=False)
+    model = ModelParams(parser, sentinel=True)
     parser.add_argument("--surf", action="store_true") 
     pipeline = PipelineParams(parser)
     parser.add_argument("--iterations", default=-1, type=int)

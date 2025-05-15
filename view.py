@@ -30,9 +30,9 @@ def view(dataset, pipe, iteration):
                     }
                     network_gui.send(net_image_bytes, dataset.source_path, metrics_dict)
                 except Exception as e:
-                    raise e
+                    print(f"{e}")
                     print('Viewer closed')
-                    exit(0)
+                    raise e
 
 if __name__ == "__main__":
 

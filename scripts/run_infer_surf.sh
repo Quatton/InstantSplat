@@ -5,20 +5,22 @@ DATA_ROOT_DIR="/home/qtn/Documents/GitHub/InstantSplat/datasets/InstantSplat"
 OUTPUT_DIR="output_infer"
 DATASETS=(
     # sora
-    DTU
+    # DTU
+    .
 )
 
 SCENES=(
     # Santorini
     # Art
-    scan105
+    # scan105
+    mac
 )
 
 N_VIEWS=(
     3
 )
 
-gs_train_iter=1000
+gs_train_iter=1500
 
 # Function to get the id of an available GPU
 get_available_gpu() {
@@ -90,6 +92,8 @@ run_on_gpu() {
     --num_cluster 50 \
     --mesh_res 2048 \
     --depth_trunc 6.0 \
+    --unbounded \
+    --infer-video \
     > ${MODEL_PATH}/03_render.log 2>&1
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Rendering completed. Log saved in ${MODEL_PATH}/03_render.log"
 

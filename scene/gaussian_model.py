@@ -209,7 +209,7 @@ class GaussianModel:
         if self.surf:
             rots = rots = torch.rand((fused_point_cloud.shape[0], 4), device="cuda")
         else:
-            rots = torch.zero((fused_point_cloud.shape[0], 4), device="cuda")
+            rots = torch.zeros((fused_point_cloud.shape[0], 4), device="cuda")
             rots[:, 0] = 1
 
         opacities = self.inverse_opacity_activation(
